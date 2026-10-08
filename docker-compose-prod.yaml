@@ -17,7 +17,7 @@ services:
       - product-prod-net
 
   product-api:
-    image: ${DOCKERHUB_USERNAME:-nguyenhuuloc0303}/product-api:latest
+    image: ${DOCKERHUB_USERNAME:-locpi0305}/product-api:latest
     container_name: product-api
     restart: unless-stopped
     ports:
