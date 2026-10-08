@@ -100,17 +100,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # STEP 3: Automated Local Docker Engine Deployment (via Self-Hosted Runner if available)
-  deploy-local-runner:
-    name: 3. CD - Deploy to Local Docker Engine
-    needs: cd-dockerhub
-    runs-on: self-hosted
-    continue-on-error: true # Continues if user relies on Watchtower instead of self-hosted runner
-
-    steps:
-      - name: Pull Latest Image and Restart Local Containers
-        run: |
-          docker compose -f docker-compose-prod.yaml pull
-          docker compose -f docker-compose-prod.yaml up -d --remove-orphans
-          echo "Local Docker Engine deployment completed successfully!"
