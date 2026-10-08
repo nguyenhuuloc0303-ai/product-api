@@ -1,0 +1,116 @@
+name: CD Pipeline (Docker Hub & Automated Local Deploy)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # STEP 1: CI with real MongoDB & Healthcheck
+  ci-test:
+    name: 1. CI Quality Gate (Tests + Healthcheck)
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Run Integration Tests
+        env:
+          MONGO_URI: mongodb://localhost:27017/test_productdb
+          NODE_ENV: test
+        run: npm test
+
+      - name: Verify Healthcheck Endpoint
+        env:
+          MONGO_URI: mongodb://localhost:27017/test_productdb
+          PORT: 3000
+        run: |
+          node src/server.js &
+          PID=$!
+          sleep 5
+          HEALTH=$(curl -s http://localhost:3000/health)
+          echo "Health check output: $HEALTH"
+          if echo "$HEALTH" | grep -q '"status":"UP"'; then
+            echo "CI Healthcheck Verified Successfully!"
+          else
+            echo "CI Healthcheck Failed!"
+            kill $PID
+            exit 1
+          fi
+          kill $PID
+
+  # STEP 2: CD to Docker Hub (Build & Push)
+  cd-dockerhub:
+    name: 2. CD - Build and Push to Docker Hub
+    needs: ci-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/product-api
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # STEP 3: Automated Local Docker Engine Deployment (via Self-Hosted Runner if available)
+  deploy-local-runner:
+    name: 3. CD - Deploy to Local Docker Engine
+    needs: cd-dockerhub
+    runs-on: self-hosted
+    continue-on-error: true # Continues if user relies on Watchtower instead of self-hosted runner
+
+    steps:
+      - name: Pull Latest Image and Restart Local Containers
+        run: |
+          docker compose -f docker-compose-prod.yaml pull
+          docker compose -f docker-compose-prod.yaml up -d --remove-orphans
+          echo "Local Docker Engine deployment completed successfully!"

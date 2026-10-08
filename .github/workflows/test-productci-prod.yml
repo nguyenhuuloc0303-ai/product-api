@@ -1,0 +1,68 @@
+name: Test Product CI Prod (Real MongoDB & Healthcheck)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  ci-prod:
+    name: Full CI with Real MongoDB & Healthcheck
+    runs-on: ubuntu-latest
+
+    # Service container: real MongoDB linked to the GitHub runner
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Run Integration Tests Against Real MongoDB
+        env:
+          MONGO_URI: mongodb://localhost:27017/test_productdb
+          NODE_ENV: test
+        run: npm test
+
+      - name: Verify Application Boot & Healthcheck Endpoint
+        env:
+          MONGO_URI: mongodb://localhost:27017/test_productdb
+          PORT: 3000
+        run: |
+          node src/server.js &
+          PID=$!
+          echo "Server running with PID $PID. Waiting for warm-up..."
+          sleep 5
+          HEALTH_RESPONSE=$(curl -s http://localhost:3000/health)
+          echo "Healthcheck Response: $HEALTH_RESPONSE"
+          if echo "$HEALTH_RESPONSE" | grep -q '"status":"UP"'; then
+            echo "Healthcheck passed successfully!"
+          else
+            echo "Healthcheck failed!"
+            kill $PID
+            exit 1
+          fi
+          kill $PID
+
+      - name: Test Docker Build
+        run: |
+          docker build -t product-api:ci-test .
+          echo "Docker image built successfully."

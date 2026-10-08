@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  nammongodb:
+    image: mongo:7.0
+    container_name: nammongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand(\"ping\")' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - product-net
+
+  product-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: product-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MONGO_URI=mongodb://nammongodb:27017/productdb
+      - NODE_ENV=production
+    depends_on:
+      nammongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - product-net
+
+volumes:
+  mongo-data:
+
+networks:
+  product-net:
+    driver: bridge
