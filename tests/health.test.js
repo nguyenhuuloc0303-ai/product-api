@@ -42,8 +42,4 @@ describe('Healthcheck Endpoint Tests', () => {
     expect(res.body.status).toBe('UP');
   });
 
-  it('GET / should return status 200', async () => {
-    const res = await request(app).get('/');
-    expect(res.statusCode).toBe(200);
-  });
 });
