@@ -178,5 +178,12 @@ describe('Product RESTful API - CRUD Operations', () => {
       expect(res.statusCode).toBe(404);
       expect(res.body.success).toBe(false);
     });
+
+    it('Get/ should return 200', async () =>{
+      const res = await request(app).get('/');
+      expect(res.statusCode).toBe(200);
+    });
+
+
   });
 });
